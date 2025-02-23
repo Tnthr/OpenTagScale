@@ -5,6 +5,7 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
+#include <ESP_EEPROM.h>
 #include <MFRC522.h>
 #include <SPI.h>
 #include <WiFiManager.h>
@@ -49,6 +50,8 @@ MFRC522 mfrc522(SS_PIN);  // Create MFRC522 instance
 void setup() {
   Serial.begin(9600);
   // while (!Serial);
+
+  EEPROM.begin(8);
 
   // Setup the RGB LED
   pinMode(LED_RED_PIN, OUTPUT);
@@ -210,6 +213,7 @@ void retrieveSpools() {
   // Disconnect
   http.end();
 }
+
 // how to gen a new uuid
 //  uuid.generate();
 //  uuid.printTo(Serial);
@@ -218,12 +222,26 @@ void retrieveSpools() {
 // Need to make it callable as needed and store the scale factor in EEPROM
 void setupScale() {
   float average = 0;
+  double calFactor = 0.0;
+
+  Serial.println("Calibrating the scale...");
 
   scale.set_scale();
   scale.tare();
   yield();
 
-  Serial.println("Calibrating the scale...");
+  EEPROM.get(0, calFactor);
+
+  Serial.print("stored calFactor: \t\t");
+  Serial.println(calFactor);
+
+  if (calFactor > 1000.0 || calFactor < 100.0 || isnan(calFactor)) {
+    Serial.println("calFactor seems invalid.");
+  } else {
+    Serial.println("calFactor seems valid!");
+    scale.set_scale(calFactor);
+    return;
+  }
 
   Serial.print("read average: \t\t");
   average = average + scale.read_average(10);
@@ -244,11 +262,15 @@ void setupScale() {
 
   average = scale.get_units(10);
   yield();
-  average = average / 1082;
+  calFactor = average / 1082;
 
   Serial.print("scale factor: \t\t");
-  Serial.println(average);
-  scale.set_scale(average);
+  Serial.println(calFactor);
+  scale.set_scale(calFactor);
+
+  EEPROM.put(0, calFactor);
+  bool ok = EEPROM.commit();
+  Serial.println((ok) ? "Saved calFactor" : "Saving calFactor failed");
 
   Serial.println("Remove weight...");
 }
