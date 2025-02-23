@@ -9,33 +9,42 @@
 #include <SPI.h>
 #include <WiFiManager.h>
 
+#include "HX711.h"
 #include "UUID.h"
 
 void newCardFound();
 void lightsOff();
 void pulsingWait(uint8_t color);
 void retrieveSpools();
-
-UUID uuid;
+void setupScale();
 
 // Spoolman server address
 String serverName = "http://10.0.1.50:8000/";
 
 // RGB LED Pins
-#define LED_RED_PIN D1
+#define LED_RED_PIN D3
 #define LED_BLU_PIN D0
-#define LED_GRN_PIN D2
+#define LED_GRN_PIN D4
 
+// Global variables
 int RGB_BRIGHT = 0;
+HX711 scale;
+UUID uuid;
+int scaleCal = 12;
+long weight = 0;
 
 // RFID Reader pins
-#define RST_PIN D3  // Configurable, see typical pin layout above
-#define SS_PIN D8   // Configurable, take a unused pin, only HIGH/LOW required, must be different to SS 2
+// #define RST_PIN D3  // Configurable, not required
+#define SS_PIN D8  // Configurable, take a unused pin, only HIGH/LOW required
 // SPI_MOSI 	   D7
 // SPI_MISO 	   D6
 // SPI_SCK 	     D5
 
-MFRC522 mfrc522(SS_PIN, RST_PIN);  // Create MFRC522 instance
+// HX711 pins
+#define LOADCELL_DOUT_PIN D1
+#define LOADCELL_SCK_PIN D2
+
+MFRC522 mfrc522(SS_PIN);  // Create MFRC522 instance
 
 void setup() {
   Serial.begin(9600);
@@ -80,6 +89,12 @@ void setup() {
   mfrc522.PCD_Init();                 // Init MFRC522
   mfrc522.PCD_DumpVersionToSerial();  // Show details of PCD - MFRC522 Card Reader details
 
+  // Setup the load cell
+  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+
+  // Check scale calibration
+  setupScale();
+
   // Setup the WiFi
   WiFi.mode(WIFI_STA);  // explicitly set mode, esp defaults to STA+AP
   // it is a good practice to make sure your code sets wifi mode how you want it.
@@ -112,11 +127,26 @@ void setup() {
     // if you get here you have connected to the WiFi
     Serial.println("Connected to WiFi");
   }
+
+  // Clear red light after wifi is connected
+  digitalWrite(LED_RED_PIN, LOW);
 }
 
 void loop() {
   if (mfrc522.PICC_IsNewCardPresent()) {
     newCardFound();
+  }
+
+  if (scale.is_ready()) {
+    long reading = scale.get_units(5);
+    if (reading < 0) {
+      reading = 0;
+    }
+    if (reading != weight) {
+      Serial.print("HX711 reading: ");
+      Serial.println(reading);
+      weight = reading;
+    }
   }
 
   // Pulse blue while waiting to read
@@ -183,3 +213,42 @@ void retrieveSpools() {
 // how to gen a new uuid
 //  uuid.generate();
 //  uuid.printTo(Serial);
+
+// Scale calibration is done here
+// Need to make it callable as needed and store the scale factor in EEPROM
+void setupScale() {
+  float average = 0;
+
+  scale.set_scale();
+  scale.tare();
+  yield();
+
+  Serial.println("Calibrating the scale...");
+
+  Serial.print("read average: \t\t");
+  average = average + scale.read_average(10);
+  yield();
+  average = average + scale.read_average(10);
+  yield();
+  average = average / 2;
+
+  Serial.println(average);  // print the average of 20 readings from the ADC
+
+  Serial.println("Add 1082g weight...");
+  for (int i = 10; i > 0; i--) {
+    Serial.print(i);
+    Serial.print("... ");
+    delay(1000);
+  }
+  Serial.println("");
+
+  average = scale.get_units(10);
+  yield();
+  average = average / 1082;
+
+  Serial.print("scale factor: \t\t");
+  Serial.println(average);
+  scale.set_scale(average);
+
+  Serial.println("Remove weight...");
+}
