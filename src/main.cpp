@@ -13,6 +13,8 @@
 #include "HX711.h"
 #include "UUID.h"
 
+#define DEBUG_RESET 0
+
 void newCardFound();
 void lightsOff();
 void pulsingWait(uint8_t color);
@@ -82,16 +84,17 @@ void setup() {
 
   // Setup the UUID library
   Serial.println();
-  Serial.print(F("UUID_LIB_VERSION: "));
+  Serial.print(F("Checking UUID Library...\t"));
   Serial.println(UUID_LIB_VERSION);
   uuid.setVariant4Mode();
 
   // Setup the RFID reader
-  Serial.println(F("Starting the RFID reader..."));
+  Serial.print(F("Starting RFID reader... \t"));
   SPI.begin();                        // Init SPI bus
   mfrc522.PCD_Init();                 // Init MFRC522
   mfrc522.PCD_DumpVersionToSerial();  // Show details of PCD - MFRC522 Card Reader details
 
+  Serial.print(F("Calibrating the scale...\t"));
   // Setup the load cell
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
 
@@ -99,6 +102,7 @@ void setup() {
   setupScale();
 
   // Setup the WiFi
+  Serial.println(F("Connecting to WiFi... "));
   WiFi.mode(WIFI_STA);  // explicitly set mode, esp defaults to STA+AP
   // it is a good practice to make sure your code sets wifi mode how you want it.
 
@@ -107,7 +111,9 @@ void setup() {
 
   // reset settings - wipe stored credentials for testing
   // these are stored by the esp library
-  // wm.resetSettings();
+  if (DEBUG_RESET) {
+    wm.resetSettings();
+  }
 
   // Automatically connect using saved credentials,
   // if connection fails, it starts an access point with the specified name ( "AutoConnectAP"),
@@ -154,9 +160,10 @@ void loop() {
 
   // Pulse blue while waiting to read
   pulsingWait(LED_BLU_PIN);
-  delay(1);
+  // delay(1);
 }
 
+// Called when a new RFID card is found
 void newCardFound() {
   Serial.println("Found a new card...");
   lightsOff();
@@ -169,6 +176,7 @@ void newCardFound() {
   return;
 }
 
+// Turn off all of the lights
 void lightsOff() {
   digitalWrite(LED_RED_PIN, LOW);
   digitalWrite(LED_GRN_PIN, LOW);
@@ -177,6 +185,7 @@ void lightsOff() {
   return;
 }
 
+// Pulse a light
 void pulsingWait(uint8_t color) {
   int brightness;
 
@@ -198,6 +207,7 @@ void pulsingWait(uint8_t color) {
   return;
 }
 
+// make API call to spoolman to retrieve a list of spools
 void retrieveSpools() {
   WiFiClient client;
   HTTPClient http;
@@ -219,12 +229,10 @@ void retrieveSpools() {
 //  uuid.printTo(Serial);
 
 // Scale calibration is done here
-// Need to make it callable as needed and store the scale factor in EEPROM
+// Need to make it callable as needed
 void setupScale() {
   float average = 0;
   double calFactor = 0.0;
-
-  Serial.println("Calibrating the scale...");
 
   scale.set_scale();
   scale.tare();
@@ -232,15 +240,19 @@ void setupScale() {
 
   EEPROM.get(0, calFactor);
 
-  Serial.print("stored calFactor: \t\t");
+  // Serial.print("stored calFactor: \t");
   Serial.println(calFactor);
 
   if (calFactor > 1000.0 || calFactor < 100.0 || isnan(calFactor)) {
-    Serial.println("calFactor seems invalid.");
+    Serial.println("\tcalFactor seems invalid.");
   } else {
-    Serial.println("calFactor seems valid!");
+    Serial.println("\tcalFactor seems valid!");
     scale.set_scale(calFactor);
-    return;
+    if (!DEBUG_RESET) {
+      return;
+    } else {
+      Serial.println("Resetting scale calibration...");
+    }
   }
 
   Serial.print("read average: \t\t");
