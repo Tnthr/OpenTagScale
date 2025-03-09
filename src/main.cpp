@@ -17,23 +17,34 @@
 #define DEBUG_RESET 0
 #define DEBUG
 
+#define MAX_DATA 889  // The most data bytes any tag will hold
+
 void newCardFound();
 void lightsOff();
 void pulsingWait(uint8_t color);
 void retrieveSpools();
 void setupScale();
 int readRfidJson();
-int readRfid(byte startingByte, uint16_t length, byte *outputBuffer);
+int readRfid(byte startingByte, uint16_t length, byte* outputBuffer);
 uint16_t byteToBlock(uint16_t byteNumber);
 uint16_t byteOffset(uint16_t byteNumber);
+
+struct SpoolJson {
+  const char* protocol;
+  float version;
+  const char* type;
+  const char* color_hex;
+  const char* brand;
+  uint16_t min_temp;
+  uint16_t max_temp;
+  float k_factor;
+  const char* uuid;
+};
 
 union ArrayToInteger {
   byte array[2];
   uint16_t integer;
 };
-
-// A buffer to hold the largest possible NTAG216 written data
-byte jsonBuffer[889] = "\0";
 
 // Spoolman server address
 String serverName = "http://10.0.1.50:8000/";
@@ -44,11 +55,9 @@ String serverName = "http://10.0.1.50:8000/";
 #define LED_GRN_PIN D4
 
 // Global variables
-int RGB_BRIGHT = 0;
+uint16_t RGB_BRIGHT = 0;
 HX711 scale;
 UUID uuid;
-int scaleCal = 12;
-long weight = 0;
 
 // RFID Reader pins
 // #define RST_PIN D3  // Configurable, not required
@@ -65,7 +74,6 @@ MFRC522 mfrc522(SS_PIN);  // Create MFRC522 instance
 
 void setup() {
   Serial.begin(9600);
-  // while (!Serial);
 
   EEPROM.begin(8);
 
@@ -101,6 +109,9 @@ void setup() {
   Serial.print(F("Checking UUID Library...\t"));
   Serial.println(UUID_LIB_VERSION);
   uuid.setVariant4Mode();
+  // how to gen a new uuid
+  uuid.generate();
+  Serial.println(uuid);
 
   // Setup the RFID reader
   Serial.print(F("Starting RFID reader... \t"));
@@ -117,6 +128,10 @@ void setup() {
 
   // Setup the WiFi
   Serial.println(F("Connecting to WiFi... "));
+
+  // Solid red light while we connect to wifi
+  digitalWrite(LED_RED_PIN, HIGH);
+
   WiFi.mode(WIFI_STA);  // explicitly set mode, esp defaults to STA+AP
   // it is a good practice to make sure your code sets wifi mode how you want it.
 
@@ -130,18 +145,14 @@ void setup() {
   }
 
   // Automatically connect using saved credentials,
-  // if connection fails, it starts an access point with the specified name ( "AutoConnectAP"),
-  // if empty will auto generate SSID, if password is blank it will be anonymous AP (wm.autoConnect())
+  // if connection fails, it starts an access point with the specified name ("OpenTagScale"),
   // then goes into a blocking loop awaiting configuration and will return success result
 
   // Stop trying after 20 seconds
   wm.setConnectTimeout(20);
 
-  // Solid red light while we connect to wifi
-  digitalWrite(LED_RED_PIN, HIGH);
-
   bool res = false;
-  res = wm.autoConnect("OpenTagScale", "password");  // password protected ap
+  // res = wm.autoConnect("OpenTagScale", "password");  // password protected ap
 
   if (!res) {
     Serial.println("Failed to connect");
@@ -156,20 +167,39 @@ void setup() {
 }
 
 void loop() {
+  uint16_t reading = 0;
+
   if (mfrc522.PICC_IsNewCardPresent()) {
     newCardFound();
   }
 
   if (scale.is_ready()) {
-    long reading = scale.get_units(5);
+    reading = scale.get_units(5);
     if (reading < 0) {
       reading = 0;
     }
-    if (reading != weight) {
-      Serial.print("HX711 reading: ");
-      Serial.println(reading);
-      weight = reading;
+
+#ifdef DEBUG
+    for (int i = 0; i < 19; i++) {
+      Serial.write(0x08);
     }
+
+    Serial.print("HX711 reading: ");
+
+    // Add padding to the weight numbers
+    if (reading < 1000) {
+      Serial.print(" ");
+      if (reading < 100) {
+        Serial.print(" ");
+        if (reading < 10) {
+          Serial.print(" ");
+        }
+      }
+    }
+
+    Serial.print(reading);
+
+#endif
   }
 
   // Pulse blue while waiting to read
@@ -179,7 +209,11 @@ void loop() {
 
 // Called when a new RFID card is found
 void newCardFound() {
+#ifdef DEBUG
+  Serial.println("");
   Serial.println("Found a new card...");
+#endif
+
   lightsOff();
   digitalWrite(LED_GRN_PIN, HIGH);
 
@@ -238,12 +272,8 @@ void retrieveSpools() {
   http.end();
 }
 
-// how to gen a new uuid
-//  uuid.generate();
-//  uuid.printTo(Serial);
-
 // Scale calibration is done here
-// Need to make it callable as needed
+// TODO: Need to make it callable as needed
 void setupScale() {
   float average = 0;
   double calFactor = 0.0;
@@ -257,6 +287,7 @@ void setupScale() {
   // Serial.print("stored calFactor: \t");
   Serial.println(calFactor);
 
+  // I have no idea what a valid range is. this works for me
   if (calFactor > 1000.0 || calFactor < 100.0 || isnan(calFactor)) {
     Serial.println("\tcalFactor seems invalid.");
   } else {
@@ -269,17 +300,18 @@ void setupScale() {
     }
   }
 
+  // Reading 20 at once had a chance of tripping the watchdog on esp8266
   Serial.print("read average: \t\t");
-  average = average + scale.read_average(10);
+  average = scale.read_average(10);
   yield();
-  average = average + scale.read_average(10);
+  average += scale.read_average(10);
   yield();
-  average = average / 2;
+  average /= 2;
 
   Serial.println(average);  // print the average of 20 readings from the ADC
 
   Serial.println("Add 1082g weight...");
-  for (int i = 10; i > 0; i--) {
+  for (uint8_t i = 10; i > 0; i--) {
     Serial.print(i);
     Serial.print("... ");
     delay(1000);
@@ -290,7 +322,7 @@ void setupScale() {
   yield();
   calFactor = average / 1082;
 
-  Serial.print("scale factor: \t\t");
+  Serial.print("Scale factor: \t\t");
   Serial.println(calFactor);
   scale.set_scale(calFactor);
 
@@ -301,11 +333,15 @@ void setupScale() {
   Serial.println("Remove weight...");
 }
 
+// Read the json from an rfid tag and interpret it
 int readRfidJson() {
   ArrayToInteger ndefSize;
-  byte dataBlocks[4];
-  int byteIndex = 16;
-  int status = 0;
+  uint8_t dataBlocks[4];
+  uint16_t byteIndex = 16;
+  int8_t status = 0;
+  uint8_t jsonBuffer[MAX_DATA] = "\0";  // A buffer to hold the largest possible NTAG216 written data
+  JsonDocument doc;
+  SpoolJson mySpool;
 
   // read from byte 16, 4 bytes, put them in dataBlocks[]
   // This should be the first TLV
@@ -331,7 +367,8 @@ int readRfidJson() {
     Serial.print("We have an NDEF TLV!\nThe size is: ");
     Serial.println(ndefSize.integer);
 #endif
-
+    byteIndex += 3;  // Skip the NDEF header data
+    ndefSize.integer -= 3;
   } else if (dataBlocks[0] == 0x00) {
     Serial.println("Null TLV");
     byteIndex++;
@@ -350,7 +387,53 @@ int readRfidJson() {
     return status;
   }
 
+  // Done reading, halt the PICC
   mfrc522.PICC_HaltA();
+
+  // Remove the leading "application/json"
+  for (uint16_t i = 0; i < sizeof(jsonBuffer) - 16; i++) {
+    jsonBuffer[i] = jsonBuffer[i + 16];
+  }
+
+  // unpack the JSON
+  DeserializationError error = deserializeJson(doc, jsonBuffer);
+
+  if (error) {
+    Serial.print("deserializeJson() failed: ");
+    Serial.println(error.f_str());
+    return -3;
+  }
+
+  mySpool.protocol = doc["protocol"];
+  mySpool.version = doc["version"];
+  mySpool.type = doc["type"];
+  mySpool.color_hex = doc["color_hex"];
+  mySpool.brand = doc["brand"];
+  mySpool.min_temp = doc["min_temp"];
+  mySpool.max_temp = doc["max_temp"];
+  mySpool.k_factor = doc["k_factor"];
+  mySpool.uuid = doc["UUID"];
+
+#ifdef DEBUG  // Print the values
+  Serial.println("All of the JSON Keys are:");
+  Serial.print("protocol : ");
+  Serial.println(mySpool.protocol);
+  Serial.print("version : ");
+  Serial.println(mySpool.version, 1);
+  Serial.print("type : ");
+  Serial.println(mySpool.type);
+  Serial.print("color_hex : ");
+  Serial.println(mySpool.color_hex);
+  Serial.print("brand : ");
+  Serial.println(mySpool.brand);
+  Serial.print("min_temp : ");
+  Serial.println(mySpool.min_temp);
+  Serial.print("max_temp : ");
+  Serial.println(mySpool.max_temp);
+  Serial.print("UUID : ");
+  Serial.println(mySpool.uuid);
+#endif
+
   return 0;
 }
 
@@ -359,15 +442,15 @@ int readRfidJson() {
 // startingByte: byte number to begin reading from
 // length: number of bytes to be read
 // outputBuffer: where to save the read data to
-int readRfid(byte startingByte, uint16_t length, byte *outputBuffer) {
+int readRfid(byte startingByte, uint16_t length, byte* outputBuffer) {
   MFRC522::StatusCode status;
   byte bufferSize = 18;
   byte readBuffer[18];
   byte block = 0;
   byte i;
-  uint8_t outputIndex = 0;
-  uint8_t startingBlock;
-  uint8_t stopBlock;
+  uint16_t outputIndex = 0;
+  uint16_t startingBlock;
+  uint16_t stopBlock;
   byte offset = byteOffset(startingByte);
 
   // determine the blocks to start and stop at
@@ -385,17 +468,17 @@ int readRfid(byte startingByte, uint16_t length, byte *outputBuffer) {
     }
 
     // Move the data into the outputBuffer
-    for (i = 0 + offset; i < 16 && outputIndex < length; i++, outputIndex++) {
+    for (i = 0 + offset; i < bufferSize - 2 && outputIndex < length; i++, outputIndex++) {
       outputBuffer[outputIndex] = readBuffer[i];
 
-#ifdef DEBUG // Print the data to serial
+#ifdef DEBUG  // Print the data to serial
       if (readBuffer[i] < 0x10)
         Serial.print(F("0"));
       Serial.print(readBuffer[i], HEX);
+#endif
     }
+#ifdef DEBUG
     Serial.println();
-#else
-    }
 #endif
 
     // after the first iteration of copy there is no more offset
