@@ -168,14 +168,14 @@ void setup() {
 }
 
 void loop() {
-  uint16_t reading = 0;
+  int16_t reading = 0;
 
   if (mfrc522.PICC_IsNewCardPresent()) {
     newCardFound();
   }
 
   if (scale.is_ready()) {
-    reading = scale.get_units(5);
+    reading = scale.get_units(5);  // BUG: this is returning a float, i should handle it as such
     if (reading < 0) {
       reading = 0;
     }
@@ -187,7 +187,7 @@ void loop() {
 
     Serial.print("HX711 reading: ");
 
-    // Add padding to the weight numbers
+    // Add padding to the weight numbers for display
     if (reading < 1000) {
       Serial.print(" ");
       if (reading < 100) {
