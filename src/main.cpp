@@ -22,7 +22,7 @@
 void newCardFound();
 void lightsOff();
 void pulsingWait(uint8_t color);
-void retrieveSpools();
+void retrieveSpool(u_int16_t spoolman_id);
 void setupScale();
 int readRfidJson();
 int readRfid(byte startingByte, uint16_t length, byte* outputBuffer);
@@ -39,6 +39,7 @@ struct SpoolJson {
   uint16_t max_temp;
   float k_factor;
   const char* uuid;
+  uint16_t spoolman_id;
 };
 
 union ArrayToInteger {
@@ -47,7 +48,7 @@ union ArrayToInteger {
 };
 
 // Spoolman server address
-String serverName = "http://10.0.1.50:8000/";
+#define SERVERNAME "http://10.0.1.50:8000/api/v1/"
 
 // RGB LED Pins
 #define LED_RED_PIN D3
@@ -152,7 +153,7 @@ void setup() {
   wm.setConnectTimeout(20);
 
   bool res = false;
-  // res = wm.autoConnect("OpenTagScale", "password");  // password protected ap
+  res = wm.autoConnect("OpenTagScale", "password");  // password protected ap
 
   if (!res) {
     Serial.println("Failed to connect");
@@ -253,23 +254,6 @@ void pulsingWait(uint8_t color) {
   RGB_BRIGHT++;
 
   return;
-}
-
-// make API call to spoolman to retrieve a list of spools
-void retrieveSpools() {
-  WiFiClient client;
-  HTTPClient http;
-
-  String APIPath = serverName + "spool";
-
-  http.begin(client, APIPath);
-  http.GET();
-
-  // Print the response
-  Serial.print(http.getString());
-
-  // Disconnect
-  http.end();
 }
 
 // Scale calibration is done here
@@ -413,6 +397,7 @@ int readRfidJson() {
   mySpool.max_temp = doc["max_temp"];
   mySpool.k_factor = doc["k_factor"];
   mySpool.uuid = doc["UUID"];
+  mySpool.spoolman_id = doc["spoolman_id"];
 
 #ifdef DEBUG  // Print the values
   Serial.println("All of the JSON Keys are:");
@@ -432,9 +417,54 @@ int readRfidJson() {
   Serial.println(mySpool.max_temp);
   Serial.print("UUID : ");
   Serial.println(mySpool.uuid);
+  Serial.print("spoolman_id : ");
+  Serial.println(mySpool.spoolman_id);
 #endif
 
+  if (mySpool.spoolman_id != 0) {
+    retrieveSpool(mySpool.spoolman_id);
+  } else {
+#ifdef DEBUG
+    Serial.println("No spoolman_id found on the RFID.");
+#endif
+  }
+
   return 0;
+}
+
+// make API call to spoolman to retrieve a list of spools
+void retrieveSpool(uint16_t spoolman_id) {
+  WiFiClient client;
+  HTTPClient http;
+  JsonDocument doc;
+  char spoolman_id_char[5] = "\0";
+  char url[99] = "\0";
+
+  itoa(spoolman_id, spoolman_id_char, 10);
+
+  strcat(url, SERVERNAME);
+  strcat(url, "spool/");
+  strcat(url, spoolman_id_char);
+
+#ifdef DEBUG
+  Serial.print("API URL: ");
+  Serial.println(url);
+#endif
+
+  http.begin(client, url);
+  http.GET();
+
+  deserializeJson(doc, http.getStream());
+
+  // Print all of the keys
+#ifdef DEBUG
+  for (JsonPair kv : doc.as<JsonObject>()) {
+    Serial.println(kv.key().c_str());
+  }
+#endif
+
+  // Disconnect
+  http.end();
 }
 
 // Read data from the active RFID tag
@@ -456,6 +486,9 @@ int readRfid(byte startingByte, uint16_t length, byte* outputBuffer) {
   // determine the blocks to start and stop at
   startingBlock = byteToBlock(startingByte);
   stopBlock = byteToBlock(startingByte + length);
+  if (byteOffset(startingByte + length)) {
+    stopBlock++;
+  }
 
   // Read 4 blocks in
   for (block = startingBlock; block < stopBlock; block += 4) {
