@@ -19,16 +19,6 @@
 
 #define MAX_DATA 889  // The most data bytes any tag will hold
 
-void newCardFound();
-void lightsOff();
-void pulsingWait(uint8_t color);
-void retrieveSpool(u_int16_t spoolman_id);
-void setupScale();
-int readRfidJson();
-int readRfid(byte startingByte, uint16_t length, byte* outputBuffer);
-uint16_t byteToBlock(uint16_t byteNumber);
-uint16_t byteOffset(uint16_t byteNumber);
-
 struct SpoolJson {
   const char* protocol;
   float version;
@@ -40,6 +30,7 @@ struct SpoolJson {
   float k_factor;
   const char* uuid;
   uint16_t spoolman_id;
+  int8_t status;
 };
 
 union ArrayToInteger {
@@ -47,13 +38,33 @@ union ArrayToInteger {
   uint16_t integer;
 };
 
+void lightsOff();
+void pulsingWait(uint8_t color);
+void retrieveSpool(uint16_t spoolman_id);
+void setupScale();
+SpoolJson readRfidJson();
+int readRfid(byte startingByte, uint16_t length, byte* outputBuffer);
+uint16_t byteToBlock(uint16_t byteNumber);
+uint16_t byteOffset(uint16_t byteNumber);
+int16_t get_weight();
+uint8_t update_spool(uint16_t spoolman_id, int16_t weight);
+void blink_for_seconds(uint8_t color, uint8_t seconds);
+
+
+
 // Spoolman server address
 #define SERVERNAME "http://10.0.1.50:8000/api/v1/"
 
-// RGB LED Pins
-#define LED_RED_PIN D3
-#define LED_BLU_PIN D0
-#define LED_GRN_PIN D4
+// RGB LED pins
+#define LED_RED D3
+#define LED_BLU D0
+#define LED_GRN D4
+
+// RGB LED extra colors
+#define LED_WHT 10
+#define LED_YEL 11
+#define LED_PUR 12
+#define LED_CYN 13
 
 // Global variables
 uint16_t RGB_BRIGHT = 0;
@@ -79,31 +90,31 @@ void setup() {
   EEPROM.begin(8);
 
   // Setup the RGB LED
-  pinMode(LED_RED_PIN, OUTPUT);
-  pinMode(LED_BLU_PIN, OUTPUT);
-  pinMode(LED_GRN_PIN, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_BLU, OUTPUT);
+  pinMode(LED_GRN, OUTPUT);
 
   lightsOff();
 
   // Do an annoying bootup blink
-  digitalWrite(LED_GRN_PIN, HIGH);
+  digitalWrite(LED_GRN, HIGH);
   delay(100);
-  digitalWrite(LED_GRN_PIN, LOW);
-  digitalWrite(LED_RED_PIN, HIGH);
+  digitalWrite(LED_GRN, LOW);
+  digitalWrite(LED_RED, HIGH);
   delay(100);
-  digitalWrite(LED_RED_PIN, LOW);
-  digitalWrite(LED_BLU_PIN, HIGH);
+  digitalWrite(LED_RED, LOW);
+  digitalWrite(LED_BLU, HIGH);
   delay(100);
-  digitalWrite(LED_BLU_PIN, LOW);
-  digitalWrite(LED_GRN_PIN, HIGH);
+  digitalWrite(LED_BLU, LOW);
+  digitalWrite(LED_GRN, HIGH);
   delay(100);
-  digitalWrite(LED_GRN_PIN, LOW);
-  digitalWrite(LED_RED_PIN, HIGH);
+  digitalWrite(LED_GRN, LOW);
+  digitalWrite(LED_RED, HIGH);
   delay(100);
-  digitalWrite(LED_RED_PIN, LOW);
-  digitalWrite(LED_BLU_PIN, HIGH);
+  digitalWrite(LED_RED, LOW);
+  digitalWrite(LED_BLU, HIGH);
   delay(100);
-  digitalWrite(LED_BLU_PIN, LOW);
+  digitalWrite(LED_BLU, LOW);
 
   // Setup the UUID library
   Serial.println();
@@ -131,7 +142,7 @@ void setup() {
   Serial.println(F("Connecting to WiFi... "));
 
   // Solid red light while we connect to wifi
-  digitalWrite(LED_RED_PIN, HIGH);
+  digitalWrite(LED_RED, HIGH);
 
   WiFi.mode(WIFI_STA);  // explicitly set mode, esp defaults to STA+AP
   // it is a good practice to make sure your code sets wifi mode how you want it.
@@ -164,21 +175,61 @@ void setup() {
   }
 
   // Clear red light after wifi is connected
-  digitalWrite(LED_RED_PIN, LOW);
+  lightsOff();
 }
 
 void loop() {
-  int16_t reading = 0;
+  int16_t weight = 0;
+  SpoolJson spool;
+  int8_t returnCode = 0;
 
+  // New card is present on the reader
   if (mfrc522.PICC_IsNewCardPresent()) {
-    newCardFound();
-  }
+#ifdef DEBUG
+    Serial.println("");
+    Serial.println("Found a new card...");
+#endif
+
+    // Green LED while reading the RFID
+    lightsOff();
+    digitalWrite(LED_GRN, HIGH);
+
+    spool = readRfidJson();
+
+    // If the spool status is not 0, the RFID is invalid
+    if (spool.status != EXIT_SUCCESS) {
+      // Purple light for 2 seconds
+      blink_for_seconds(LED_PUR, 2);
+      return;
+    }
+
+    // wait for the scale to stabilize
+    blink_for_seconds(LED_GRN, 1);
+
+    while (!scale.is_ready()) {
+      pulsingWait(LED_GRN);
+    }
+    weight = get_weight();
+
+#ifdef DEBUG
+    Serial.print("Weight: ");
+    Serial.println(weight);
+#endif
+
+    // update the spool with a new weight
+    returnCode = update_spool(spool.spoolman_id, weight);
+
+    if (returnCode == EXIT_SUCCESS) {
+      // White light for 2 seconds
+      blink_for_seconds(LED_WHT, 2);
+    } else {
+      // Red light for 2 seconds
+      blink_for_seconds(LED_RED, 2);
+    }
+  } // end of new card present
 
   if (scale.is_ready()) {
-    reading = scale.get_units(5);  // BUG: this is returning a float, i should handle it as such
-    if (reading < 0) {
-      reading = 0;
-    }
+    weight = get_weight();
 
 #ifdef DEBUG
     for (int i = 0; i < 19; i++) {
@@ -188,48 +239,42 @@ void loop() {
     Serial.print("HX711 reading: ");
 
     // Add padding to the weight numbers for display
-    if (reading < 1000) {
+    if (weight < 1000) {
       Serial.print(" ");
-      if (reading < 100) {
+      if (weight < 100) {
         Serial.print(" ");
-        if (reading < 10) {
+        if (weight < 10) {
           Serial.print(" ");
         }
       }
     }
 
-    Serial.print(reading);
+    Serial.print(weight);
 
 #endif
   }
 
   // Pulse blue while waiting to read
-  pulsingWait(LED_BLU_PIN);
-  // delay(1);
+  pulsingWait(LED_BLU);
 }
 
-// Called when a new RFID card is found
-void newCardFound() {
-#ifdef DEBUG
-  Serial.println("");
-  Serial.println("Found a new card...");
-#endif
+// Get a weight reading from the scale and return it
+int16_t get_weight() {
+  int16_t reading = 0;
 
-  lightsOff();
-  digitalWrite(LED_GRN_PIN, HIGH);
+  reading = scale.get_units(5);  // BUG: this is returning a float, i should handle it as such
+  if (reading < 0) {
+    reading = 0;
+  }
 
-  readRfidJson();
-
-  lightsOff();
-
-  return;
+  return reading;
 }
 
 // Turn off all of the lights
 void lightsOff() {
-  digitalWrite(LED_RED_PIN, LOW);
-  digitalWrite(LED_GRN_PIN, LOW);
-  digitalWrite(LED_BLU_PIN, LOW);
+  digitalWrite(LED_RED, LOW);
+  digitalWrite(LED_GRN, LOW);
+  digitalWrite(LED_BLU, LOW);
 
   return;
 }
@@ -318,7 +363,7 @@ void setupScale() {
 }
 
 // Read the json from an rfid tag and interpret it
-int readRfidJson() {
+SpoolJson readRfidJson() {
   ArrayToInteger ndefSize;
   uint8_t dataBlocks[4];
   uint16_t byteIndex = 16;
@@ -334,7 +379,8 @@ int readRfidJson() {
   if (status != 0) {
     Serial.print("readRFID returned error! ");
     Serial.println(status);
-    return status;
+    mySpool.status = status;
+    return mySpool;
   }
 
   // find the TLV and hope it was an NDEF
@@ -360,6 +406,9 @@ int readRfidJson() {
     // TODO: Finish handling of other TLVs just in case
     Serial.print("Different TLV: ");
     Serial.println(dataBlocks[0], HEX);
+
+    mySpool.status = -1;
+    return mySpool;
   }
 
   // read the entire NDEF data block
@@ -368,7 +417,8 @@ int readRfidJson() {
   if (status != 0) {
     Serial.print("readRFID returned error! ");
     Serial.println(status);
-    return status;
+    mySpool.status = status;
+    return mySpool;
   }
 
   // Done reading, halt the PICC
@@ -385,7 +435,9 @@ int readRfidJson() {
   if (error) {
     Serial.print("deserializeJson() failed: ");
     Serial.println(error.f_str());
-    return -3;
+
+    mySpool.status = -2;
+    return mySpool;
   }
 
   mySpool.protocol = doc["protocol"];
@@ -422,17 +474,20 @@ int readRfidJson() {
 #endif
 
   if (mySpool.spoolman_id != 0) {
-    retrieveSpool(mySpool.spoolman_id);
+  mySpool.status = 0;
+    // retrieveSpool(mySpool.spoolman_id);
   } else {
+  mySpool.status = EXIT_FAILURE;
+
 #ifdef DEBUG
     Serial.println("No spoolman_id found on the RFID.");
 #endif
   }
 
-  return 0;
+  return mySpool;
 }
 
-// make API call to spoolman to retrieve a list of spools
+// make API call to spoolman to retrieve data on a spool
 void retrieveSpool(uint16_t spoolman_id) {
   WiFiClient client;
   HTTPClient http;
@@ -537,4 +592,98 @@ uint16_t byteOffset(uint16_t byteNumber) {
   offset = byteNumber % 4;
 
   return offset;
+}
+
+// make API call to spoolman to update a spool's gross weight
+uint8_t update_spool(uint16_t spoolman_id, int16_t weight) {
+  WiFiClient client;
+  HTTPClient http;
+  JsonDocument doc;
+  char spoolman_id_char[5] = "\0";
+  char url[99] = "\0";
+  char payload[99] = "\0";
+  char weight_char[5] = "\0";
+  uint8_t returnCode = 0;
+
+  itoa(spoolman_id, spoolman_id_char, 10);
+
+  // https://donkie.github.io/spool/{spool_id}/measure
+  strcat(url, SERVERNAME);
+  strcat(url, "spool/");
+  strcat(url, spoolman_id_char);
+  strcat(url, "/measure");
+
+#ifdef DEBUG
+  Serial.print("Update URL: ");
+  Serial.println(url);
+#endif
+
+  itoa(weight, weight_char, 10);
+
+  strcat(payload, "{\"weight\":");
+  strcat(payload, weight_char);
+  strcat(payload, "}");
+
+#ifdef DEBUG
+  Serial.print("Update payload: ");
+  Serial.println(payload);
+#endif
+
+  http.begin(client, url);
+  returnCode = http.PUT((uint8_t*)payload, strlen(payload));
+
+  http.end();
+
+  if (returnCode == 200) {
+    return EXIT_SUCCESS;
+  }
+  return returnCode % 255;
+}
+
+void blink_for_seconds(uint8_t color, uint8_t seconds) {
+  lightsOff();
+
+  seconds = seconds * 2;
+
+  if (color == LED_WHT) {
+    for (uint8_t i = 0; i < seconds; i++) {
+      digitalWrite(LED_BLU, HIGH);
+      digitalWrite(LED_GRN, HIGH);
+      digitalWrite(LED_RED, HIGH);
+      delay(250);
+      lightsOff();
+      delay(250);
+    }
+  } else if (color == LED_YEL) {
+    for (uint8_t i = 0; i < seconds; i++) {
+      digitalWrite(LED_RED, HIGH);
+      digitalWrite(LED_GRN, HIGH);
+      delay(250);
+      lightsOff();
+      delay(250);
+    }
+  } else if (color == LED_PUR) {
+    for (uint8_t i = 0; i < seconds; i++) {
+      digitalWrite(LED_RED, HIGH);
+      digitalWrite(LED_BLU, HIGH);
+      delay(250);
+      lightsOff();
+      delay(250);
+    }
+  } else if (color == LED_CYN) {
+    for (uint8_t i = 0; i < seconds; i++) {
+      digitalWrite(LED_BLU, HIGH);
+      digitalWrite(LED_GRN, HIGH);
+      delay(250);
+      lightsOff();
+      delay(250);
+    }
+  } else {
+    for (uint8_t i = 0; i < seconds; i++) {
+      digitalWrite(color, HIGH);
+      delay(250);
+      digitalWrite(color, LOW);
+      delay(250);
+    }
+  }
 }
