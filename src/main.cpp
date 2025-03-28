@@ -50,15 +50,13 @@ int16_t get_weight();
 uint8_t update_spool(uint16_t spoolman_id, int16_t weight);
 void blink_for_seconds(uint8_t color, uint8_t seconds);
 
-
-
 // Spoolman server address
 #define SERVERNAME "http://10.0.1.50:8000/api/v1/"
 
 // RGB LED pins
-#define LED_RED D3
-#define LED_BLU D0
-#define LED_GRN D4
+#define LED_RED D4
+#define LED_BLU D3
+#define LED_GRN D0
 
 // RGB LED extra colors
 #define LED_WHT 10
@@ -79,8 +77,8 @@ UUID uuid;
 // SPI_SCK 	     D5
 
 // HX711 pins
-#define LOADCELL_DOUT_PIN D1
-#define LOADCELL_SCK_PIN D2
+#define LOADCELL_SCK_PIN D1
+#define LOADCELL_DOUT_PIN D2
 
 MFRC522 mfrc522(SS_PIN);  // Create MFRC522 instance
 
@@ -226,7 +224,7 @@ void loop() {
       // Red light for 2 seconds
       blink_for_seconds(LED_RED, 2);
     }
-  } // end of new card present
+  }  // end of new card present
 
   if (scale.is_ready()) {
     weight = get_weight();
@@ -474,10 +472,10 @@ SpoolJson readRfidJson() {
 #endif
 
   if (mySpool.spoolman_id != 0) {
-  mySpool.status = 0;
+    mySpool.status = 0;
     // retrieveSpool(mySpool.spoolman_id);
   } else {
-  mySpool.status = EXIT_FAILURE;
+    mySpool.status = EXIT_FAILURE;
 
 #ifdef DEBUG
     Serial.println("No spoolman_id found on the RFID.");
