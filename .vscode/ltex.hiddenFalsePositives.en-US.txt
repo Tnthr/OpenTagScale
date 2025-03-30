@@ -1,0 +1,1 @@
+{"rule":"MORFOLOGIK_RULE_EN_US","sentence":"^\\QThe OpenTag and OpenSpool projects talk about their implementation of these tags and this project piggybacks on that by adding one data field (spoolman_id) to the tag to enable looking up the spool in your local Spoolman instance.\\E$"}
