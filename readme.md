@@ -2,6 +2,7 @@
 
 - [OpenTagScale](#opentagscale)
   - [Introduction](#introduction)
+  - [Installation](#installation)
   - [References](#references)
   - [Hardware](#hardware)
     - [Current](#current)
@@ -18,11 +19,21 @@ The system relies on having an NFC tag on the spool. These tags are cheap and re
 
 So far there is no interface except the RGB LED that blinks or lights in various colors to indicate statuses. Future plans are to add a web interface for control of writing tags, configuration, and other. The current setup simply has a web interface setup to be used for the initial connection to a wireless network.
 
+<img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExazd4anFzMnhhYzgwYzV1a256cDE4ajR2bHJyamJjeXdsNTZhaTlpYiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/XMI40JClHkv4bifPxJ/giphy.gif" frameBorder="0" class="giphy-embed" allowFullScreen></img>
+
+## Installation
+
+This project was built using PlatformIO. It should technically be installable to many microcontrollers because of this. The installation process is currently done manually and would require each user to have a PlatformIO environment setup. Another to-do item is to streamline this process.
+
+*Write a short walkthrough of the install process here. If it's too long then make a separate doc*
+
 ## References
 
+Several other projects that have inspired or are somehow related.
+
+- Spoolman - https://github.com/Donkie/Spoolman
 - OpenSpool - https://github.com/spuder/openspool
 - OpenTag - https://github.com/Bambu-Research-Group/RFID-Tag-Guide/blob/main/OpenTag.md/
-- Spoolman - https://github.com/Donkie/Spoolman
 
 ## Hardware
 
