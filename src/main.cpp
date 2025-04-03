@@ -644,13 +644,11 @@ uint8_t update_spool(uint16_t spoolman_id, int16_t weight) {
   return returnCode % 255;
 }
 
-void blink_for_seconds(uint8_t color, uint8_t seconds) {
+void blink_num_times(uint8_t color, uint8_t times) {
   lightsOff();
 
-  seconds = seconds * 2;
-
   if (color == LED_WHT) {
-    for (uint8_t i = 0; i < seconds; i++) {
+    for (uint8_t i = 0; i < times; i++) {
       digitalWrite(LED_BLU, HIGH);
       digitalWrite(LED_GRN, HIGH);
       digitalWrite(LED_RED, HIGH);
@@ -659,7 +657,7 @@ void blink_for_seconds(uint8_t color, uint8_t seconds) {
       delay(250);
     }
   } else if (color == LED_YEL) {
-    for (uint8_t i = 0; i < seconds; i++) {
+    for (uint8_t i = 0; i < times; i++) {
       digitalWrite(LED_RED, HIGH);
       digitalWrite(LED_GRN, HIGH);
       delay(250);
@@ -667,7 +665,7 @@ void blink_for_seconds(uint8_t color, uint8_t seconds) {
       delay(250);
     }
   } else if (color == LED_PUR) {
-    for (uint8_t i = 0; i < seconds; i++) {
+    for (uint8_t i = 0; i < times; i++) {
       digitalWrite(LED_RED, HIGH);
       digitalWrite(LED_BLU, HIGH);
       delay(250);
@@ -675,7 +673,7 @@ void blink_for_seconds(uint8_t color, uint8_t seconds) {
       delay(250);
     }
   } else if (color == LED_CYN) {
-    for (uint8_t i = 0; i < seconds; i++) {
+    for (uint8_t i = 0; i < times; i++) {
       digitalWrite(LED_BLU, HIGH);
       digitalWrite(LED_GRN, HIGH);
       delay(250);
@@ -683,7 +681,7 @@ void blink_for_seconds(uint8_t color, uint8_t seconds) {
       delay(250);
     }
   } else {
-    for (uint8_t i = 0; i < seconds; i++) {
+    for (uint8_t i = 0; i < times; i++) {
       digitalWrite(color, HIGH);
       delay(250);
       digitalWrite(color, LOW);
