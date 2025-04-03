@@ -48,7 +48,8 @@ uint16_t byteToBlock(uint16_t byteNumber);
 uint16_t byteOffset(uint16_t byteNumber);
 int16_t get_weight();
 uint8_t update_spool(uint16_t spoolman_id, int16_t weight);
-void blink_for_seconds(uint8_t color, uint8_t seconds);
+void blink_num_times(uint8_t color, uint8_t times);
+uint16_t findSpool(const char* uuid);
 
 // Spoolman server address
 #define SERVERNAME "http://10.0.1.50:8000/api/v1/"
@@ -143,7 +144,6 @@ void setup() {
   digitalWrite(LED_RED, HIGH);
 
   WiFi.mode(WIFI_STA);  // explicitly set mode, esp defaults to STA+AP
-  // it is a good practice to make sure your code sets wifi mode how you want it.
 
   // WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wm;
@@ -196,13 +196,13 @@ void loop() {
 
     // If the spool status is not 0, the RFID is invalid
     if (spool.status != EXIT_SUCCESS) {
-      // Purple light for 2 seconds
-      blink_for_seconds(LED_PUR, 2);
+      // Purple light 2 times
+      blink_num_times(LED_PUR, 2);
       return;
     }
 
     // wait for the scale to stabilize
-    blink_for_seconds(LED_GRN, 1);
+    blink_num_times(LED_GRN, 1);
 
     while (!scale.is_ready()) {
       pulsingWait(LED_GRN);
@@ -218,11 +218,11 @@ void loop() {
     returnCode = update_spool(spool.spoolman_id, weight);
 
     if (returnCode == EXIT_SUCCESS) {
-      // White light for 2 seconds
-      blink_for_seconds(LED_WHT, 2);
+      // White light 4 times
+      blink_num_times(LED_WHT, 4);
     } else {
-      // Red light for 2 seconds
-      blink_for_seconds(LED_RED, 2);
+      // Red light 4 times
+      blink_num_times(LED_RED, 4);
     }
   }  // end of new card present
 
@@ -370,43 +370,49 @@ SpoolJson readRfidJson() {
   JsonDocument doc;
   SpoolJson mySpool;
 
-  // read from byte 16, 4 bytes, put them in dataBlocks[]
-  // This should be the first TLV
-  status = readRfid(byteIndex, 4, dataBlocks);
+  // Initial size of the NDEF. Read until this is set.
+  ndefSize.integer = 0;
 
-  if (status != 0) {
-    Serial.print("readRFID returned error! ");
-    Serial.println(status);
-    mySpool.status = status;
-    return mySpool;
-  }
+  while (ndefSize.integer == 0) {
+    // read from byte 16, 4 bytes, put them in dataBlocks[]
+    // This should be the first TLV
+    status = readRfid(byteIndex, 4, dataBlocks);
 
-  // find the TLV and hope it was an NDEF
-  if (dataBlocks[0] == 0x03) {  // NDEF TLV
-    if (dataBlocks[1] == 0xFF) {
-      ndefSize.array[0] = dataBlocks[3];
-      ndefSize.array[1] = dataBlocks[2];
-      byteIndex += 4;
-    } else {
-      ndefSize.integer = dataBlocks[1];
-      byteIndex += 2;
+    if (status != 0) {
+      Serial.print("readRFID returned error! ");
+      Serial.println(status);
+      mySpool.status = status;
+      return mySpool;
     }
-#ifdef DEBUG
-    Serial.print("We have an NDEF TLV!\nThe size is: ");
-    Serial.println(ndefSize.integer);
-#endif
-    byteIndex += 3;  // Skip the NDEF header data
-    ndefSize.integer -= 3;
-  } else if (dataBlocks[0] == 0x00) {
-    Serial.println("Null TLV");
-    byteIndex++;
-  } else {
-    // TODO: Finish handling of other TLVs just in case
-    Serial.print("Different TLV: ");
-    Serial.println(dataBlocks[0], HEX);
 
-    mySpool.status = -1;
-    return mySpool;
+    // find the TLV and hope it was an NDEF
+    if (dataBlocks[0] == 0x03) {  // NDEF TLV
+      if (dataBlocks[1] == 0xFF) {
+        ndefSize.array[0] = dataBlocks[3];
+        ndefSize.array[1] = dataBlocks[2];
+        byteIndex += 4;
+      } else {
+        ndefSize.integer = dataBlocks[1];
+        byteIndex += 2;
+      }
+#ifdef DEBUG
+      Serial.print("We have an NDEF TLV!\nThe size is: ");
+      Serial.println(ndefSize.integer);
+#endif
+      byteIndex += 3;  // Skip the NDEF header data
+      ndefSize.integer -= 3;
+    } else if (dataBlocks[0] == 0x00) {
+      Serial.println("Null TLV");
+      byteIndex++;
+      ndefSize.integer = 0;  // This will force another read
+    } else {
+      // TODO: Finish handling of other TLVs just in case
+      Serial.print("Different TLV: ");
+      Serial.println(dataBlocks[0], HEX);
+
+      mySpool.status = -1;
+      return mySpool;
+    }
   }
 
   // read the entire NDEF data block
