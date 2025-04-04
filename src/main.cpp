@@ -46,9 +46,9 @@ SpoolJson readRfidJson();
 int readRfid(byte startingByte, uint16_t length, byte* outputBuffer);
 uint16_t byteToBlock(uint16_t byteNumber);
 uint16_t byteOffset(uint16_t byteNumber);
-int16_t get_weight();
-uint8_t update_spool(uint16_t spoolman_id, int16_t weight);
-void blink_num_times(uint8_t color, uint8_t times);
+int16_t getWeight();
+uint8_t updateSpool(uint16_t spoolman_id, int16_t weight);
+void blinkNumTimes(uint8_t color, uint8_t times);
 uint16_t findSpoolByUuid(const char* uuid);
 
 // Spoolman server address
@@ -197,17 +197,17 @@ void loop() {
     // If the spool status is not 0, the RFID is invalid
     if (spool.status != EXIT_SUCCESS) {
       // Purple light 2 times
-      blink_num_times(LED_PUR, 2);
+      blinkNumTimes(LED_PUR, 2);
       return;
     }
 
     // wait for the scale to stabilize
-    blink_num_times(LED_GRN, 1);
+    blinkNumTimes(LED_GRN, 1);
 
     while (!scale.is_ready()) {
       pulsingWait(LED_GRN);
     }
-    weight = get_weight();
+    weight = getWeight();
 
 #ifdef DEBUG
     Serial.print("Weight: ");
@@ -215,19 +215,19 @@ void loop() {
 #endif
 
     // update the spool with a new weight
-    returnCode = update_spool(spool.spoolman_id, weight);
+    returnCode = updateSpool(spool.spoolman_id, weight);
 
     if (returnCode == EXIT_SUCCESS) {
       // White light 4 times
-      blink_num_times(LED_WHT, 4);
+      blinkNumTimes(LED_WHT, 4);
     } else {
       // Red light 4 times
-      blink_num_times(LED_RED, 4);
+      blinkNumTimes(LED_RED, 4);
     }
   }  // end of new card present
 
   if (scale.is_ready()) {
-    weight = get_weight();
+    weight = getWeight();
 
 #ifdef DEBUG
     for (int i = 0; i < 19; i++) {
@@ -257,7 +257,7 @@ void loop() {
 }
 
 // Get a weight reading from the scale and return it
-int16_t get_weight() {
+int16_t getWeight() {
   int16_t reading = 0;
 
   reading = scale.get_units(5);  // BUG: this is returning a float, i should handle it as such
@@ -607,7 +607,7 @@ uint16_t byteOffset(uint16_t byteNumber) {
 }
 
 // make API call to spoolman to update a spool's gross weight
-uint8_t update_spool(uint16_t spoolman_id, int16_t weight) {
+uint8_t updateSpool(uint16_t spoolman_id, int16_t weight) {
   WiFiClient client;
   HTTPClient http;
   JsonDocument doc;
@@ -652,7 +652,7 @@ uint8_t update_spool(uint16_t spoolman_id, int16_t weight) {
   return returnCode % 255;
 }
 
-void blink_num_times(uint8_t color, uint8_t times) {
+void blinkNumTimes(uint8_t color, uint8_t times) {
   lightsOff();
 
   if (color == LED_WHT) {
