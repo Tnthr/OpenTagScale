@@ -40,7 +40,7 @@ union ArrayToInteger {
 
 void lightsOff();
 void pulsingWait(uint8_t color);
-void retrieveSpool(uint16_t spoolman_id);
+SpoolJson retrieveSpool(uint16_t spoolman_id);
 void setupScale();
 SpoolJson readRfidJson();
 int readRfid(byte startingByte, uint16_t length, byte* outputBuffer);
@@ -499,22 +499,24 @@ SpoolJson readRfidJson() {
   return mySpool;
 }
 
-// make API call to spoolman to retrieve data on a spool
-void retrieveSpool(uint16_t spoolman_id) {
+// make API call to spoolman to retrieve data for a spool
+SpoolJson retrieveSpool(uint16_t spoolman_id) {
   WiFiClient client;
   HTTPClient http;
   JsonDocument doc;
   char spoolman_id_char[5] = "\0";
   char url[99] = "\0";
+  SpoolJson mySpool;
 
   itoa(spoolman_id, spoolman_id_char, 10);
 
+  // https://donkie.github.io/spool/{spool_id}
   strcat(url, SERVERNAME);
   strcat(url, "spool/");
   strcat(url, spoolman_id_char);
 
 #ifdef DEBUG
-  Serial.print("API URL: ");
+  Serial.print("retrieveSpool API URL: ");
   Serial.println(url);
 #endif
 
@@ -523,15 +525,58 @@ void retrieveSpool(uint16_t spoolman_id) {
 
   deserializeJson(doc, http.getStream());
 
-  // Print all of the keys
-#ifdef DEBUG
-  for (JsonPair kv : doc.as<JsonObject>()) {
-    Serial.println(kv.key().c_str());
-  }
-#endif
-
   // Disconnect
   http.end();
+
+  mySpool.protocol = "openspool";
+  mySpool.version = 1.0;
+  mySpool.type = doc["filament"]["material"];
+  mySpool.color_hex = doc["filament"]["color_hex"];
+  mySpool.brand = doc["filament"]["vendor"]["name"];
+  mySpool.min_temp = doc["filament"]["settings_extruder_temp"];
+  mySpool.max_temp = doc["filament"]["settings_extruder_temp"];
+  mySpool.k_factor = 0;
+  mySpool.uuid = doc["extra"]["serial_number"];
+  mySpool.spoolman_id = doc["id"];
+  mySpool.status = EXIT_SUCCESS;
+
+  // This means no spool data was returned
+  if (mySpool.uuid == NULL) {
+    mySpool.status = EXIT_FAILURE;
+    return mySpool;
+  }
+
+  if (strcmp(mySpool.uuid, "\"\"") == 0) {
+    Serial.println("No UUID found, generating a new one.");
+    uuid.generate();
+    mySpool.uuid = uuid.toCharArray();
+  } else {
+    Serial.println("UUID found on the RFID.");
+  }
+
+#ifdef DEBUG  // Print the values
+  Serial.println("retrieveSpool returned:");
+  Serial.print("protocol : ");
+  Serial.println(mySpool.protocol);
+  Serial.print("version : ");
+  Serial.println(mySpool.version, 1);
+  Serial.print("type : ");
+  Serial.println(mySpool.type);
+  Serial.print("color_hex : ");
+  Serial.println(mySpool.color_hex);
+  Serial.print("brand : ");
+  Serial.println(mySpool.brand);
+  Serial.print("min_temp : ");
+  Serial.println(mySpool.min_temp);
+  Serial.print("max_temp : ");
+  Serial.println(mySpool.max_temp);
+  Serial.print("UUID : ");
+  Serial.println(mySpool.uuid);
+  Serial.print("spoolman_id : ");
+  Serial.println(mySpool.spoolman_id);
+#endif
+
+  return mySpool;
 }
 
 // Read data from the active RFID tag
