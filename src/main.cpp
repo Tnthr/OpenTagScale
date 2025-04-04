@@ -49,7 +49,7 @@ uint16_t byteOffset(uint16_t byteNumber);
 int16_t get_weight();
 uint8_t update_spool(uint16_t spoolman_id, int16_t weight);
 void blink_num_times(uint8_t color, uint8_t times);
-uint16_t findSpool(const char* uuid);
+uint16_t findSpoolByUuid(const char* uuid);
 
 // Spoolman server address
 #define SERVERNAME "http://10.0.1.50:8000/api/v1/"
@@ -479,7 +479,15 @@ SpoolJson readRfidJson() {
 
   if (mySpool.spoolman_id != 0) {
     mySpool.status = 0;
-    // retrieveSpool(mySpool.spoolman_id);
+  } else if (mySpool.uuid != 0) {  // No spoolman_id found, so we need to find the spool
+    mySpool.spoolman_id = findSpoolByUuid(mySpool.uuid);
+
+    if (mySpool.spoolman_id != 0) {
+      mySpool.status = EXIT_SUCCESS;
+    } else {
+      mySpool.status = EXIT_FAILURE;
+    }
+
   } else {
     mySpool.status = EXIT_FAILURE;
 
@@ -688,4 +696,81 @@ void blink_num_times(uint8_t color, uint8_t times) {
       delay(250);
     }
   }
+}
+
+// Find a spool in the database based on UUID and return the spoolman_id
+uint16_t findSpoolByUuid(const char* uuid) {
+  WiFiClient client;
+  HTTPClient http;
+  JsonDocument doc;
+  char url[99] = "\0";
+  JsonDocument filter;
+  uint16_t json_count = 0;
+  char sn_char[48] = "\0";
+  uint16_t spoolman_id = 0;
+
+  // filter out unwanted data
+  filter[0]["id"] = true;
+  filter[0]["extra"] = true;
+
+  // List all spools. Sadly you can't search by an extra field
+  // https://donkie.github.io/spool
+  strcat(url, SERVERNAME);
+  strcat(url, "spool");
+
+#ifdef DEBUG
+  Serial.print("API URL: ");
+  Serial.println(url);
+#endif
+
+  http.begin(client, url);
+  http.GET();
+
+  DeserializationError error = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+
+  if (error) {
+    Serial.print("deserializeJson() failed: ");
+    Serial.println(error.f_str());
+  }
+
+  json_count = doc.size();
+
+  uint16_t i = 0;
+  while (i < json_count) {
+    JsonObject root = doc[i];
+    const char* extra_serial_number = root["extra"]["serial_number"];
+
+    if (extra_serial_number == NULL) {
+      i++;
+      continue;
+    }
+
+    uint16_t j = 0;
+
+    for (uint16_t x = 0; x < strlen(extra_serial_number); x++) {
+      if (extra_serial_number[x] != '\"') {  // Skip double quotes
+        sn_char[j++] = extra_serial_number[x];
+      }
+    }
+
+    sn_char[j] = '\0';
+
+    if (strcmp(sn_char, uuid) == 0) {
+      spoolman_id = root["id"];
+      break;
+    }
+    i++;
+  }
+
+#ifdef DEBUG
+  Serial.print("spoolman_id: ");
+  Serial.println(spoolman_id);
+  Serial.print("extra_serial_number: ");
+  Serial.println(sn_char);
+#endif
+
+  // Disconnect
+  http.end();
+
+  return spoolman_id;
 }
